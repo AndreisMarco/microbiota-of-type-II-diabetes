@@ -1,4 +1,5 @@
-This is the repository of group 9 for the course "22160 R for bio data science" (DTU).
+This is the repository of group 9 for the course "22160 R for bio data science" (DTU). \
+Copy of the [original repository](https://github.com/rforbiodatascience24/group_09_project) to avoid deletion by the organization.
 
 Group members:
 - Anita Skovbjerg Hjort-Gregersen (s201190 / anitaskovbjerg)
