@@ -1,0 +1,49 @@
+---
+format: 
+  html:
+    self-contained: true
+---
+# Retrieve original data
+
+```{r}
+library("tidyverse")
+library('httr')
+library('jsonlite')
+```
+
+
+This first thing to do is acquire the dataset which is available on [kaggle](https://www.kaggle.com/api/v1/datasets/download/antaresnyc/human-metagenomics). We check if the dataset is already present, if it is not, we collect it programmatically from kaggle and save it in the \_raw folder.
+
+```{r}
+target_dir <- "../_raw/"
+wanted_file <- "abundance.csv"
+  
+# check if the file is already present 
+already_present <- file.exists(str_c(target_dir, wanted_file))
+
+if (already_present) {
+  message(str_c("The dataset file is already present. Check ", target_dir))
+} else {
+  # Define the Kaggle dataset path and download location
+  dataset_slug <- "antaresnyc/human-metagenomics"
+  output_file <- "../_raw/human_metagenomics.zip"
+  
+  # Dowload the dataset from kaggle
+  response <- GET(
+    url = str_c("https://www.kaggle.com/api/v1/datasets/download/", dataset_slug),
+    write_disk(output_file)
+  )
+  
+  # Unzip the downloaded file
+  unzip(output_file, exdir = target_dir)
+  
+  # Get list of files in the directory 
+  extracted_files <- list.files(target_dir, recursive = TRUE)
+
+  # Delete files we don't care about
+  files_to_delete <- setdiff(extracted_files, wanted_file)
+  map(files_to_delete, ~ {
+    file_path <- file.path(target_dir, .x)
+      file.remove(file_path)})
+}
+```

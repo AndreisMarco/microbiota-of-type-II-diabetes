@@ -1,0 +1,237 @@
+---
+format: 
+  html:
+    self-contained: true
+---
+# Analysis of species abundances
+
+```{r}
+library("tidyverse")
+library("here")
+library("broom")
+library("vegan")
+source("99_proj_func.R")
+```
+
+
+```{r}
+data_path <- here("data/06_dat_augmented.RData")
+load(data_path)
+```
+
+### Assessing relationships between species abundance and metadata features
+
+Let's analyze the diversity between classes based on microbiota composition.
+
+```{r}
+abundances <- dataset |> 
+  select(sampleID, glucose_tolerance, BMI_class, starts_with("s_"))
+
+pca_fit <- abundances |> 
+  select(where(is.numeric)) |> 
+  prcomp(scale = TRUE)
+
+pca_plot <- pca_fit |> 
+  augment(abundances) |> 
+  ggplot(aes(.fittedPC1, .fittedPC2)) + 
+  geom_point(size = 1.5)
+
+save_plot_custom(
+  plot = pca_plot,
+  filename = "10_pca_plot.jpg"
+)
+pca_plot
+```
+
+We see that there is an outlier in the data that we can remove for visualization sake.
+
+```{r}
+outlier <- pca_fit |> 
+  augment(abundances) |> 
+  select(-starts_with("s_")) |> 
+  filter(.fittedPC1 < -30) |> 
+  pull(sampleID)
+```
+
+```{r}
+abundances <- abundances |> 
+  filter(sampleID != outlier)
+
+pca_fit <- abundances |> 
+  select(where(is.numeric)) |> 
+  prcomp(scale = TRUE)
+
+variance_explained <- pca_fit |> 
+  tidy(matrix = "eigenvalues") |> 
+  mutate(percent_explained = round(percent * 100, 2))
+
+pc1_var <- variance_explained |>
+  filter(PC == 1) |>
+  pull(percent_explained)
+pc2_var <- variance_explained |>
+  filter(PC == 2) |>
+  pull(percent_explained)
+
+pca_glucose_tolerance <- pca_fit |> 
+  augment(abundances) |> 
+  ggplot(aes(.fittedPC1, .fittedPC2, color = glucose_tolerance)) + 
+  geom_point(size = 1.5) + 
+  labs(title = "PCA of glucose tolerance classes based on microbiota composition",
+       x = str_c("PC1 (", pc1_var, "%)"),
+       y = str_c("PC2 (", pc2_var, "%)"),
+       color = "Glucose tolerance")
+
+save_plot_custom(
+  plot = pca_glucose_tolerance,
+  filename = "10_pca_glucose_tolerance.jpg"
+)
+pca_glucose_tolerance
+
+
+pca_BMI <- pca_fit |> 
+  augment(abundances) |> 
+  ggplot(aes(.fittedPC1, .fittedPC2, color = BMI_class)) + 
+  geom_point(size = 1.5) + 
+  labs(title = "PCA of BMI classes based on microbiota composition", 
+       x = str_c("PC1 (", pc1_var, "%)"),
+       y = str_c("PC2 (", pc2_var, "%)"),
+       color= "BMI Class")
+
+save_plot_custom(
+  plot = pca_BMI,
+  filename = "10_pca_BMI.jpg"
+)
+pca_BMI
+```
+
+Even by removing the outlier, the plots show that the samples do not cluster in any significant way, either for the BMI or for the glucose tolerance, this is in agreement with the observation made so far.
+
+### Statistical analysis of samples microbiota
+
+Before we can study how the bacterial species may be related to type 2 diabetes, we need to find which bacteria have more than 50 values that are not 0. Even though 0 is a meaningful value in the dataset, we need some data points to vary in order to see if there is a meaning full relationship.
+
+```{r}
+#Get a list of the bacteria that have less than n samples where the value is different from 0
+n <- 50
+sparse_columns <- dataset |>  
+  select(starts_with("s_")) |> 
+  pivot_longer(cols = starts_with("s_"),
+               names_to = "bacteria",
+               values_to = "abundance") |> 
+  filter(abundance > -2.5) |> 
+  group_by(bacteria) |> 
+  summarise(non_zero_samples = n()) |> 
+  filter(non_zero_samples < n) |> 
+  pull(bacteria)
+```
+
+```{r}
+#splitting dataset into metadata and bacteria data 
+metadata <- dataset |> 
+  select(-starts_with("s_")) 
+```
+
+We will perform the p-value analysis where we compare the bacterial samples from normal and T2D (type 2 diabetes) patients. Therefore, we will remove the impaired samples and sparse data. Next, we will transform the columns and convert the data from wide format to long format to conduct the p-value analysis.
+
+```{r}
+dataset_long <- dataset |> 
+  filter(glucose_tolerance != "impaired" ) |> 
+  select(-all_of(sparse_columns)) |> 
+  pivot_longer(cols = starts_with("s_"),
+               names_to = "bacteria",
+               values_to = "abundance")
+```
+
+Then we group the data by bacteria and nest it. After that, we ungroup it. By doing so, we obtain another tibble, which is a table for each bacterium.
+
+```{r}
+dataset_long_nested <- dataset_long|> 
+  group_by(bacteria) |> 
+  nest() |> 
+  ungroup()
+
+dataset_long_nested
+```
+
+Here we see how the data can be pulled out for a choosen bacterium.
+
+```{r}
+#How to get the data
+dataset_long_nested |> 
+  filter(bacteria == "s_Bacteroides_caccae") |> 
+  pull(data)
+```
+
+Then we fit a linear fitting model to each bacterium.
+
+```{r}
+dataset_long_nested <- dataset_long_nested |> 
+  group_by(bacteria) |> 
+  mutate(model_object = map(.x = data,
+                            .f = ~lm(formula = abundance ~ is_diseased,
+                                     data = .x))) |> 
+  mutate(model_object_tidy = map(.x = model_object,
+                                 .f = ~tidy(x = .x,
+                                            conf.int = TRUE,
+                                            conf.level = 0.95)))
+```
+
+Then we show how a linear model for a random bacterium would look.
+
+```{r}
+#How to get the model
+dataset_long_nested |> 
+  filter(bacteria == "s_Bacteroides_caccae") |> 
+  pull(model_object_tidy)
+```
+
+We unnest the model object so we can access the data and values inside the model.
+
+```{r}
+dataset_estimates <- dataset_long_nested |> 
+  unnest(model_object_tidy)
+dataset_estimates
+```
+
+Then we check if there are any bacteria that are significant at the alpha = 0.05 level. We filter for those, and we find that none of the bacteria are significant at that level.
+
+```{r}
+dataset_estimates <- dataset_estimates |> 
+  filter(term == "is_diseased") |> 
+  select(bacteria,p.value,estimate,conf.low,conf.high,p.value) |> 
+  ungroup() |> 
+  mutate(q.value = p.adjust(p.value),
+         is_significant = case_when(q.value <= 0.05 ~ "yes",
+                                    q.value > 0.05 ~ "no"))
+
+significant_species <- dataset_estimates |> 
+  filter(is_significant == "yes")
+```
+
+```{r}
+sig_diff_species <- significant_species |> 
+ggplot(aes(x = estimate,
+             y = bacteria,
+             xmin = conf.low,
+             xmax = conf.high)) +
+  geom_vline(xintercept = 0) +
+  geom_errorbarh() +
+  geom_point() +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(hjust = 1)) +
+  labs(x = "Estimated difference  (95% CIs)",
+       y = expression("Different abundant species"))
+
+save_plot_custom(
+  plot = sig_diff_species,
+  filename = "10_sig_diff_species.jpg"
+)
+sig_diff_species
+```
+
+```{r}
+# clean environment
+# rm(list = ls() |>  
+#       keep(~ !is.function(get(.))) |>  
+#       discard(~ . %in% ls()))
+```

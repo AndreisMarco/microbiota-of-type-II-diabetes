@@ -1,0 +1,110 @@
+---
+title: "Changes in microbiota of type 2 diabetes patients"
+author: 
+  - "Anita Skovbjerg Hjort-Gregersen (s201190)"
+  - "Asiya Mohamad Yusuf Muse (s243930)"
+  - "Magnus Harthimmer (s233426)"  
+  - "Marco Andreis (s243116)"
+  - "Rebecca Hjermind Millum (s215024)"
+
+execute:
+  warning: false
+  message: false
+
+toc: true
+format: 
+  html:
+    self-contained: true
+editor: visual
+---
+
+### Setup
+
+Load packages necessary for the project.
+
+```{r}
+# general libraries
+library("quarto")
+library("tidyverse")
+library("here")
+
+# for data collection
+library('httr')
+library('jsonlite')
+
+# for visualization / plotting
+library("ggridges")
+library("patchwork")
+library("viridis")
+
+# for analysis
+library("table1")
+library("broom")
+library("vegan")
+
+# Import custom function
+source("99_proj_func.R")
+```
+
+For the project output we need three folders (\_raw, data, results). This file creates those folders if they are not already present and then proceed to run the whole project.
+
+```{r}
+# folder to store the raw dataset before any processing
+target_dir <- "../_raw/"
+if (!file.exists(target_dir)) {
+  dir.create(target_dir, recursive = TRUE)
+}
+
+# folder to store the intermediate processed dataset
+target_dir <- "../data/"
+if (!file.exists(target_dir)) {
+  dir.create(target_dir, recursive = TRUE)
+  }
+
+# folder to store the results of the analysis (html and plots)
+target_dir <- "../results/"
+if (!file.exists(target_dir)) {
+  dir.create(target_dir, recursive = TRUE)
+  }
+```
+
+{{< include 01_download.qmd >}}
+
+{{< include 02_load.qmd >}}
+
+{{< include 03_data_selection.qmd >}}
+
+{{< include 04_clean.qmd >}}
+
+{{< include 05_tidy.qmd >}}
+
+{{< include 06_augment.qmd >}}
+
+{{< include 07_describe_metadata.qmd >}}
+
+{{< include 08_describe_abundance.qmd >}}
+
+{{< include 09_analysis_metadata.qmd >}}
+
+{{< include 10_analysis_abundance.qmd >}}
+
+```{r}
+# List of .qmd files
+quarto_files <- c("01_download.qmd", "02_load.qmd", "03_data_selection.qmd", 
+           "04_clean.qmd", "05_tidy.qmd", "06_augment.qmd", 
+           "07_describe_metadata.qmd", "08_describe_abundance.qmd", 
+           "09_analysis_metadata.qmd", "10_analysis_abundance.qmd")
+
+# Render all quarto files in their own html
+quarto_files |> 
+  walk(~ quarto_render(.x, execute = TRUE, output_format = "html"))
+```
+
+```{r}
+# Move the rendered html to the results folder
+html_files <- list.files(path = getwd(), pattern = "\\.html$", full.names = TRUE)
+file.rename(html_files, file.path("../results/", basename(html_files)))
+
+# removed unwanted folder created as byproduct of rendereing all the documents
+unlink("*_files", recursive = TRUE)
+```

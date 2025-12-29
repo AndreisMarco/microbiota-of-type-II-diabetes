@@ -1,0 +1,85 @@
+---
+format: 
+  html:
+    self-contained: true
+---
+# Tidying the dataset
+
+```{r}
+library("tidyverse")
+library("here")
+```
+
+
+We visualize the dataset and see that it is already tidy after the cleaning process, but we still make a couple of changes to make the dataset more readable.
+
+```{r}
+data_path <- here("data/04_dat_clean.csv")
+dataset <- read_csv(data_path,
+                    show_col_types = FALSE)
+```
+
+The three rules of tidy are:
+
+-   Each row is a sample
+-   Each column is a feature
+-   Each cell has only one value
+
+```{r}
+head(dataset)
+```
+
+We can see that the three rules are already satisfied.
+
+But we can still make some adjustments to prepare the dataset... first let's rename the disease column to make it easier to interpret.
+
+```{r}
+dataset <- dataset |> 
+  rename(glucose_tolerance = disease) |>
+  mutate(glucose_tolerance = case_when(
+    glucose_tolerance == "impaired_glucose_tolerance" ~ "impaired",
+    glucose_tolerance == "n" ~ "normal",
+    TRUE ~ glucose_tolerance
+  )) |> 
+  mutate(glucose_tolerance = factor(glucose_tolerance,
+                                     levels = c("normal",
+                                                "impaired",
+                                                "t2d"))) |> 
+  arrange(glucose_tolerance)
+```
+
+The other change we can make is regarding the abundances... as for now the structure of the abundance columns is that of descending from kingdom to species and has an entry for each taxonomy level. While this can be useful to perform analysis at different levels, it also increases drastically the number of rows and also causes many values to be repeated if, for example, a single species is present for the whole kingdom.
+
+Because of this we decided to focus on species abundance
+
+```{r}
+metadata <- dataset |> 
+  select(-starts_with("k__"))
+
+abundance <- dataset |> 
+  select(which(str_count(names(dataset),
+                         "\\|") == 6) & starts_with("k__"))
+
+colnames(abundance) <- sub(".*s__",
+                           "s_",
+                           colnames(abundance))
+```
+
+Now each column represent the abundance of a specific species.
+
+A key processing step is that of transforming the composite that in a way that can be compared across different samples.
+
+```{r}
+dataset <- metadata |> 
+  bind_cols(abundance)
+```
+
+```{r}
+target_dir <- "../data"
+
+# save the dataset in the data folder
+write_csv(dataset, str_c(target_dir, "/05_dat_tidy.csv"))
+# from now on we are going to mantain a RData copy for the files as we want to mantain columns formatted as factor
+file_path <- str_c(target_dir, "/05_dat_tidy.RData")
+save(dataset, file = file_path)
+```
